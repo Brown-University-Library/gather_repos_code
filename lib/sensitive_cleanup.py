@@ -140,7 +140,10 @@ class SensitiveTextSanitizer:
         if not looks_like_url(value):
             return value
 
-        parsed_url = urlsplit(value)
+        try:
+            parsed_url = urlsplit(value)
+        except ValueError:
+            return value
         if not is_sensitive_host(parsed_url.hostname or ''):
             return value
 

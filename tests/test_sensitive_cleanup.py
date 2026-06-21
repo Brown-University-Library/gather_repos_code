@@ -230,6 +230,10 @@ class SensitiveCleanupTests(unittest.TestCase):
                 "SERVER_ROOT = 'http://localhost:8000/'\n",
                 "SERVER_ROOT = 'http://localhost:8000/'\n",
             ),
+            (
+                r"PATTERN = r'https://[^\'\"]+/common/css/bul_patterns\.css'",
+                r"PATTERN = r'https://[^\'\"]+/common/css/bul_patterns\.css'",
+            ),
         ]
 
         source: str
