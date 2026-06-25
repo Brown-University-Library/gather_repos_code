@@ -382,6 +382,7 @@ class MainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_url = 'git@github.com:Brown-University-Library/repo_a.git'
             repo_dir = Path(temp_dir) / 'repo_a'
+            state_file = Path(temp_dir) / 'gather_repos_state.json'
 
             def fake_clone_repo(clone_url: str, destination_dir: Path) -> None:
                 self.assertEqual(clone_url, repo_url)
@@ -395,31 +396,32 @@ class MainTests(unittest.TestCase):
                             'fetch_remote_main_info',
                             return_value={'branch': 'main', 'commit': 'abc123', 'head_branch': 'main'},
                         ):
-                            with mock.patch.object(
-                                main,
-                                'fetch_local_head_metadata',
-                                return_value={'commit': 'abc123', 'timestamp': '2026-04-19T12:00:00-04:00'},
+                            with (
+                                mock.patch.object(
+                                    main,
+                                    'fetch_local_head_metadata',
+                                    return_value={'commit': 'abc123', 'timestamp': '2026-04-19T12:00:00-04:00'},
+                                ),
+                                mock.patch.object(main, 'derive_state_file_path', return_value=state_file),
+                                mock.patch.object(
+                                    main,
+                                    'current_timestamp',
+                                    side_effect=[
+                                        '2026-04-19T12:00:00-04:00',
+                                        '2026-04-19T12:00:00-04:00',
+                                    ],
+                                ),
+                                mock.patch.object(main, 'confirm_overwrite', return_value=True),
+                                mock.patch.object(main, 'clone_repo', side_effect=fake_clone_repo),
+                                mock.patch.object(main, 'remove_git_dirs', return_value=[]),
+                                mock.patch.object(
+                                    main,
+                                    'sanitize_repo_contents',
+                                    return_value=SanitizationStats(),
+                                ),
                             ):
-                                with mock.patch.object(main, 'load_repo_state', return_value={'version': 1, 'repos': {}}):
-                                    with mock.patch.object(
-                                        main,
-                                        'current_timestamp',
-                                        side_effect=[
-                                            '2026-04-19T12:00:00-04:00',
-                                            '2026-04-19T12:00:00-04:00',
-                                        ],
-                                    ):
-                                        with mock.patch.object(main, 'confirm_overwrite', return_value=True):
-                                            with mock.patch.object(main, 'clone_repo', side_effect=fake_clone_repo):
-                                                with mock.patch.object(main, 'remove_git_dirs', return_value=[]):
-                                                    with mock.patch.object(
-                                                        main,
-                                                        'sanitize_repo_contents',
-                                                        return_value=SanitizationStats(),
-                                                    ):
-                                                        main.main()
+                                main.main()
 
-            state_file = Path(main.__file__).resolve().parent.parent / 'gather_repos_state.json'
             saved_state = json.loads(state_file.read_text(encoding='utf-8'))
 
         self.assertEqual(saved_state['version'], 1)
