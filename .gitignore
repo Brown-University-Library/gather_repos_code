@@ -9,3 +9,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local one-off repair scripts
+repair_from_existing_commits.py
