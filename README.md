@@ -191,4 +191,5 @@ In either mode, each repo directory will contain the working tree content, but n
 - It removes `.git/` directories recursively within each cloned repo.
 - Before deleting any discovered `.git/` directory, it validates that the resolved path is still inside that repo's root.
 - The cleanup step rewrites text files in place and skips files that look binary based on suffixes and content.
+- For very large text files, each sanitization step scans the text once and creates at most one updated copy instead of creating a new full-size copy after every match. URL and hostname replacement is skipped when no configured sensitive hostname is present.
 - The cleanup step is intentionally conservative about structure: it aims to preserve code shape while obfuscating sensitive values.
