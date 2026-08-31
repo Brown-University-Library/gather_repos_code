@@ -5,10 +5,22 @@ This file defines the canonical coding directives for this repository.
 If other instruction files exist (Copilot, IDE rules, contributor docs) and conflict with this file, follow this file and treat the others as stale.
 
 
+## Table of contents
+
+- [Project basics](#project-basics)
+- [How to run code](#how-to-run-code)
+- [Coding directives (Python)](#coding-directives-python)
+- [Django architecture conventions](#django-architecture-conventions)
+- [Tests](#tests)
+- [Change workflow expectations](#change-workflow-expectations)
+- [If instructions are missing or ambiguous](#if-instructions-are-missing-or-ambiguous)
+- [Agent repository index](#agent-repository-index)
+
+
 ## Project basics
 
 - Primary language: Python
-- Target runtime: Python 3.12
+- Target runtime: Python 3.12, as specified by `pyproject.toml`.
 - Dependency / execution tool: `uv`
 - Project-root is the directory containing this file (and `.git/`, and `.gitignore`).
 
@@ -40,12 +52,18 @@ If other instruction files exist (Copilot, IDE rules, contributor docs) and conf
   - `if __name__ == '__main__': main()`
 - Keep `main()` simple: parse args / orchestrate calls only.
 - Put real logic into top-level helper functions and modules (no nested function definitions).
+- Rarely use more than three levels of helper calls: `main()` can call `helper_a()`, which can call `helper_b()`, which can call `helper_c()` when necessary.
 
 ### Functions and control flow
 
 - Prefer single-return functions (use local variables and a final return).
 - Do not define functions inside other functions.
 - Favor clarity and explicitness over cleverness.
+
+### Logging
+
+- When adding a log statement, when possible, format each variable value as its label followed by a comma and a space, with the value enclosed in double backticks.
+- Prefer a label that matches the variable name. Example: `log.debug(f'branch_and_commit, ``{branch_and_commit}``')`.
 
 ### HTTP and networking
 
@@ -67,9 +85,14 @@ If other instruction files exist (Copilot, IDE rules, contributor docs) and conf
 - Start test-function docstring-text with "Checks..."
 - For header-comments, in functions, start the comment with two hashes (e.g., `## does this`).
 
-### Additonal coding directives
+### Additional coding directives
 
 - inspect the `/ruff.toml` for additional coding directives, such as `max-line-length` and `quote-style`.
+
+### Markdown formatting
+
+- Do not add manual line breaks within Markdown paragraphs; let the renderer wrap them naturally.
+- When creating a Markdown file with more than three top-level `##` headings, add a table of contents near the top with links to those headings.
 
 
 ## Django architecture conventions
@@ -117,6 +140,12 @@ When implementing a change (especially from an issue/task):
 3. Update tests and run: `uv run ./run_tests.py`
 4. If you cannot run tests in your environment, still write/adjust tests and state what you would run.
 
+### Commit messages
+
+- Group related files into focused commits; do not require a separate commit for every file.
+- Keep each commit message brief, with no more than ten words.
+- Write messages in the present tense so they complete the phrase "This commit..." Begin with a fitting verb such as "Adds," "Implements," or "Updates."
+
 
 ## If instructions are missing or ambiguous
 
@@ -126,5 +155,16 @@ When implementing a change (especially from an issue/task):
   - what you tried
   - what you found in the repo
   - a concrete next step (command, file to edit, or minimal decision needed)
+
+
+## Agent repository index
+
+- `main.py` parses command-line input and coordinates remote checks, overwrite confirmation, cloning, Git metadata removal, sanitization, and state updates.
+- `lib/repo_operations.py` contains environment parsing, persistent-state operations, Git commands, path validation, cloning, and directory removal.
+- `lib/sensitive_cleanup.py` identifies text files and replaces sensitive assignments, email addresses, URLs, and hostnames. Large files use linear replacement passes, and URL or hostname work is skipped when no configured sensitive hostname marker is present.
+- `tests/` uses `unittest` and mirrors the three main code areas: command orchestration, repository operations, and sensitive-content cleanup.
+- Persistent state is stored in `../gather_repos_state.json`, one directory above this repository root. Do not assume the chosen output directory contains the state file.
+- Update decisions compare only the remote `main` branch. A repository whose default branch differs from `main` produces a warning but is still checked and cloned from `main`.
+- The operation order is clone, capture Git metadata, remove `.git` directories, sanitize files, and then save successful state. An interruption can leave an incomplete destination without updated state; a later run should replace that destination.
 
 ---
