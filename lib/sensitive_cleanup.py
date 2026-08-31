@@ -2,13 +2,12 @@
 Helpers to obfuscate sensitive text in gathered repositories.
 """
 
-from dataclasses import dataclass
 import hashlib
 import re
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from urllib.parse import urlsplit
-from urllib.parse import urlunsplit
-
+from urllib.parse import urlsplit, urlunsplit
 
 TEXT_SUFFIX_BLOCKLIST: set[str] = {
     '.7z',
@@ -54,6 +53,10 @@ SENSITIVE_KEY_PATTERN: re.Pattern[str] = re.compile(
 EMAIL_PATTERN: re.Pattern[str] = re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
 URL_PATTERN: re.Pattern[str] = re.compile(r'https?://[^\s\'"<>)]+')
 HOST_PATTERN: re.Pattern[str] = re.compile(r'\b(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\b')
+SENSITIVE_HOST_MARKER_PATTERN: re.Pattern[str] = re.compile(
+    '|'.join(re.escape(host_suffix) for host_suffix in SENSITIVE_HOST_SUFFIXES),
+    flags=re.IGNORECASE,
+)
 
 
 @dataclass
@@ -187,29 +190,10 @@ def sanitize_sensitive_assignments(text: str, sanitizer: SensitiveTextSanitizer 
     Called by: tests.test_sensitive_cleanup.SensitiveCleanupTests.test_sanitize_sensitive_assignments_cases()
     """
     active_sanitizer: SensitiveTextSanitizer = sanitizer or SensitiveTextSanitizer()
-    updated_text: str = text
-    match: re.Match[str]
-    for match in reversed(list(SENSITIVE_KEY_PATTERN.finditer(text))):
-        prefix: str = match.group('prefix')
-        quote: str = match.group('quote')
-        key: str = match.group('key').lower()
-        value: str = match.group('value')
-
-        replacement_value: str = value
-        if EMAIL_PATTERN.fullmatch(value):
-            replacement_value = replacement_for_email(value, active_sanitizer)
-        elif looks_like_url(value):
-            replacement_value = replacement_for_url(value, active_sanitizer)
-        elif looks_like_host(value):
-            replacement_value = replacement_for_host(value, active_sanitizer)
-        elif is_secret_key(key):
-            replacement_value = replacement_for_secret(value, active_sanitizer)
-        elif is_username_key(key):
-            replacement_value = replacement_for_username(value, active_sanitizer)
-
-        active_sanitizer.increment_replacement_count_if_changed(value, replacement_value)
-        replaced_text: str = f'{prefix}{quote}{replacement_value}{quote}'
-        updated_text = f'{updated_text[:match.start()]}{replaced_text}{updated_text[match.end():]}'
+    updated_text: str = SENSITIVE_KEY_PATTERN.sub(
+        partial(_replace_sensitive_assignment_match, sanitizer=active_sanitizer),
+        text,
+    )
     return updated_text
 
 
@@ -221,12 +205,11 @@ def sanitize_urls(text: str, sanitizer: SensitiveTextSanitizer | None = None) ->
     """
     active_sanitizer: SensitiveTextSanitizer = sanitizer or SensitiveTextSanitizer()
     updated_text: str = text
-    match: re.Match[str]
-    for match in reversed(list(URL_PATTERN.finditer(text))):
-        original_value: str = match.group(0)
-        replacement_value: str = replacement_for_url(original_value, active_sanitizer)
-        active_sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
-        updated_text = f'{updated_text[:match.start()]}{replacement_value}{updated_text[match.end():]}'
+    if SENSITIVE_HOST_MARKER_PATTERN.search(text):
+        updated_text = URL_PATTERN.sub(
+            partial(_replace_url_match, sanitizer=active_sanitizer),
+            text,
+        )
     return updated_text
 
 
@@ -237,13 +220,10 @@ def sanitize_emails(text: str, sanitizer: SensitiveTextSanitizer | None = None) 
     Called by: tests.test_sensitive_cleanup.SensitiveCleanupTests.test_sanitize_emails_cases()
     """
     active_sanitizer: SensitiveTextSanitizer = sanitizer or SensitiveTextSanitizer()
-    updated_text: str = text
-    match: re.Match[str]
-    for match in reversed(list(EMAIL_PATTERN.finditer(text))):
-        original_value: str = match.group(0)
-        replacement_value: str = replacement_for_email(original_value, active_sanitizer)
-        active_sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
-        updated_text = f'{updated_text[:match.start()]}{replacement_value}{updated_text[match.end():]}'
+    updated_text: str = EMAIL_PATTERN.sub(
+        partial(_replace_email_match, sanitizer=active_sanitizer),
+        text,
+    )
     return updated_text
 
 
@@ -255,13 +235,80 @@ def sanitize_hosts(text: str, sanitizer: SensitiveTextSanitizer | None = None) -
     """
     active_sanitizer: SensitiveTextSanitizer = sanitizer or SensitiveTextSanitizer()
     updated_text: str = text
-    match: re.Match[str]
-    for match in reversed(list(HOST_PATTERN.finditer(text))):
-        original_value: str = match.group(0)
-        replacement_value: str = replacement_for_host(original_value, active_sanitizer)
-        active_sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
-        updated_text = f'{updated_text[:match.start()]}{replacement_value}{updated_text[match.end():]}'
+    if SENSITIVE_HOST_MARKER_PATTERN.search(text):
+        updated_text = HOST_PATTERN.sub(
+            partial(_replace_host_match, sanitizer=active_sanitizer),
+            text,
+        )
     return updated_text
+
+
+def _replace_sensitive_assignment_match(
+    match: re.Match[str],
+    *,
+    sanitizer: SensitiveTextSanitizer,
+) -> str:
+    """
+    Replaces one sensitive-assignment match without copying the surrounding text.
+
+    Called by: sanitize_sensitive_assignments()
+    """
+    prefix: str = match.group('prefix')
+    quote: str = match.group('quote')
+    key: str = match.group('key').lower()
+    value: str = match.group('value')
+
+    replacement_value: str = value
+    if EMAIL_PATTERN.fullmatch(value):
+        replacement_value = replacement_for_email(value, sanitizer)
+    elif looks_like_url(value):
+        replacement_value = replacement_for_url(value, sanitizer)
+    elif looks_like_host(value):
+        replacement_value = replacement_for_host(value, sanitizer)
+    elif is_secret_key(key):
+        replacement_value = replacement_for_secret(value, sanitizer)
+    elif is_username_key(key):
+        replacement_value = replacement_for_username(value, sanitizer)
+
+    sanitizer.increment_replacement_count_if_changed(value, replacement_value)
+    replaced_text: str = f'{prefix}{quote}{replacement_value}{quote}'
+    return replaced_text
+
+
+def _replace_url_match(match: re.Match[str], *, sanitizer: SensitiveTextSanitizer) -> str:
+    """
+    Replaces one URL match without copying the surrounding text.
+
+    Called by: sanitize_urls()
+    """
+    original_value: str = match.group(0)
+    replacement_value: str = replacement_for_url(original_value, sanitizer)
+    sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
+    return replacement_value
+
+
+def _replace_email_match(match: re.Match[str], *, sanitizer: SensitiveTextSanitizer) -> str:
+    """
+    Replaces one email match without copying the surrounding text.
+
+    Called by: sanitize_emails()
+    """
+    original_value: str = match.group(0)
+    replacement_value: str = replacement_for_email(original_value, sanitizer)
+    sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
+    return replacement_value
+
+
+def _replace_host_match(match: re.Match[str], *, sanitizer: SensitiveTextSanitizer) -> str:
+    """
+    Replaces one hostname match without copying the surrounding text.
+
+    Called by: sanitize_hosts()
+    """
+    original_value: str = match.group(0)
+    replacement_value: str = replacement_for_host(original_value, sanitizer)
+    sanitizer.increment_replacement_count_if_changed(original_value, replacement_value)
+    return replacement_value
 
 
 def replacement_for_email(value: str, sanitizer: SensitiveTextSanitizer | None = None) -> str:

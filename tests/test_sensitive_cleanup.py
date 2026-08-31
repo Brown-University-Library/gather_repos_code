@@ -300,6 +300,16 @@ class SensitiveCleanupTests(unittest.TestCase):
             with self.subTest(source):
                 self.assertEqual(sanitize_hosts(source), expected)
 
+    def test_sanitize_hosts_returns_large_harmless_text_unchanged(self) -> None:
+        """
+        Checks large files with many hostname-like values bypass replacement work.
+        """
+        source: str = '\n'.join(f'image-{index}.example.org' for index in range(50_000))
+
+        sanitized_text: str = sanitize_hosts(source)
+
+        self.assertIs(sanitized_text, source)
+
     def test_sanitize_text_end_to_end_cases(self) -> None:
         """
         Checks full-pipeline sanitization on mixed source text.
